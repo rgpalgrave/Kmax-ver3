@@ -270,24 +270,31 @@ config = FFTConfig(
 st.sidebar.info(f"📊 Grid: {config.grid_size}³ points")
 
 # ==============================================================================
-# Main Content
+# Main Content - Tabs
 # ==============================================================================
 
-# Generate lattice
-if lattice_type == "Primitive Cubic":
-    sphere_centers = generate_primitive_cubic_2x2x2(lattice_param)
-    num_atoms = 8
-    lattice_desc = "Primitive Cubic (8 atoms)"
-else:  # FCC
-    sphere_centers = generate_fcc_lattice_2x2x2(lattice_param)
-    num_atoms = 32
-    lattice_desc = "Face-Centered Cubic (32 atoms)"
+tab1, tab2 = st.tabs(["Single Configuration", "1D Parameter Scan"])
 
-# Create sphere configuration
-spheres = create_sphere_config(sphere_centers, sphere_radius)
+# ==============================================================================
+# TAB 1: Single Configuration
+# ==============================================================================
 
-# Main columns
-col1, col2 = st.columns([1, 1])
+with tab1:
+    # Generate lattice
+    if lattice_type == "Primitive Cubic":
+        sphere_centers = generate_primitive_cubic_2x2x2(lattice_param)
+        num_atoms = 8
+        lattice_desc = "Primitive Cubic (8 atoms)"
+    else:  # FCC
+        sphere_centers = generate_fcc_lattice_2x2x2(lattice_param)
+        num_atoms = 32
+        lattice_desc = "Face-Centered Cubic (32 atoms)"
+
+    # Create sphere configuration
+    spheres = create_sphere_config(sphere_centers, sphere_radius)
+
+    # Main columns
+    col1, col2 = st.columns([1, 1])
 
 with col1:
     st.markdown("### Lattice Information")
@@ -421,6 +428,178 @@ with col_acc2:
         
         fig_heatmap = plot_accumulator_slice(accumulator, axis=axis, slice_idx=slice_idx)
         st.plotly_chart(fig_heatmap, use_container_width=True)
+
+# ==============================================================================
+# TAB 2: 1D Parameter Scan
+# ==============================================================================
+
+with tab2:
+    st.markdown("### 1D Parameter Scan")
+    
+    scan_col1, scan_col2 = st.columns([1, 1])
+    
+    with scan_col1:
+        st.markdown("#### Scan Configuration")
+        
+        scan_param = st.radio(
+            "Scan Parameter",
+            ["Lattice Parameter (a)", "Sphere Radius (r)"],
+            horizontal=True
+        )
+        
+        if scan_param == "Lattice Parameter (a)":
+            param_min = st.slider("Min a (Å)", 0.3, 2.0, 0.5, 0.1, key="a_min")
+            param_max = st.slider("Max a (Å)", 0.5, 3.0, 2.0, 0.1, key="a_max")
+            param_name = "Lattice Parameter a"
+            param_unit = "Å"
+        else:  # Radius
+            param_min = st.slider("Min r (Å)", 0.05, 1.0, 0.2, 0.05, key="r_min")
+            param_max = st.slider("Max r (Å)", 0.2, 2.0, 1.5, 0.05, key="r_max")
+            param_name = "Sphere Radius r"
+            param_unit = "Å"
+        
+        num_points = st.slider("Number of Points", 5, 100, 20, 5)
+        
+        if param_min >= param_max:
+            st.error("Min must be less than Max!")
+            st.stop()
+    
+    with scan_col2:
+        st.markdown("#### Scan Info")
+        st.info(f"""
+        **Lattice Type**: {lattice_type}
+        **Number of Atoms**: {8 if lattice_type == 'Primitive Cubic' else 32}
+        **Parameter**: {param_name}
+        **Range**: {param_min:.2f}–{param_max:.2f} {param_unit}
+        **Points**: {num_points}
+        """)
+    
+    if st.button("📊 Run 1D Scan", type="primary", use_container_width=True):
+        # Generate parameter values
+        param_values = np.linspace(param_min, param_max, num_points)
+        
+        # Store results
+        results_list = []
+        k_max_values = []
+        peak_values = []
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        with st.spinner("Running parameter scan..."):
+            for idx, param_val in enumerate(param_values):
+                status_text.text(f"Computing {idx+1}/{num_points}...")
+                progress_bar.progress((idx + 1) / num_points)
+                
+                # Generate lattice
+                if lattice_type == "Primitive Cubic":
+                    if scan_param == "Lattice Parameter (a)":
+                        centers = generate_primitive_cubic_2x2x2(param_val)
+                        fixed_radius = sphere_radius
+                    else:
+                        centers = generate_primitive_cubic_2x2x2(lattice_param)
+                        fixed_radius = param_val
+                else:  # FCC
+                    if scan_param == "Lattice Parameter (a)":
+                        centers = generate_fcc_lattice_2x2x2(param_val)
+                        fixed_radius = sphere_radius
+                    else:
+                        centers = generate_fcc_lattice_2x2x2(lattice_param)
+                        fixed_radius = param_val
+                
+                # Create spheres
+                spheres = create_sphere_config(centers, fixed_radius)
+                
+                # Estimate k_max
+                k_max, peak_val, peak_pos = estimate_kmax(spheres, config)
+                
+                k_max_values.append(k_max)
+                peak_values.append(peak_val)
+                results_list.append({
+                    'Parameter': param_val,
+                    'k_max': k_max,
+                    'Peak Value': peak_val,
+                    'Peak X': peak_pos[0],
+                    'Peak Y': peak_pos[1],
+                    'Peak Z': peak_pos[2],
+                })
+        
+        status_text.empty()
+        progress_bar.empty()
+        
+        # Display results
+        st.markdown("---")
+        st.markdown("### Results")
+        
+        result_col1, result_col2, result_col3, result_col4 = st.columns(4)
+        with result_col1:
+            st.metric("Min k_max", int(np.min(k_max_values)))
+        with result_col2:
+            st.metric("Max k_max", int(np.max(k_max_values)))
+        with result_col3:
+            st.metric("Mean k_max", f"{np.mean(k_max_values):.1f}")
+        with result_col4:
+            st.metric("Std Dev", f"{np.std(k_max_values):.2f}")
+        
+        st.markdown("---")
+        
+        # Plot k_max vs parameter
+        fig = go.Figure()
+        
+        fig.add_trace(go.Scatter(
+            x=param_values,
+            y=k_max_values,
+            mode='lines+markers',
+            name='k_max (soft)',
+            line=dict(color='blue', width=2),
+            marker=dict(size=8)
+        ))
+        
+        fig.update_layout(
+            title=f"k_max vs {param_name}",
+            xaxis_title=f"{param_name} ({param_unit})",
+            yaxis_title="k_max",
+            hovermode='x unified',
+            height=500,
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Peak values secondary axis
+        fig2 = go.Figure()
+        
+        fig2.add_trace(go.Scatter(
+            x=param_values,
+            y=peak_values,
+            mode='lines+markers',
+            name='Peak Value',
+            line=dict(color='green', width=2),
+            marker=dict(size=8)
+        ))
+        
+        fig2.update_layout(
+            title=f"Peak Value vs {param_name}",
+            xaxis_title=f"{param_name} ({param_unit})",
+            yaxis_title="Peak Value (FFT Accumulator)",
+            hovermode='x unified',
+            height=500,
+        )
+        
+        st.plotly_chart(fig2, use_container_width=True)
+        
+        # Data table
+        with st.expander("📋 Scan Data"):
+            df_results = pd.DataFrame(results_list)
+            st.dataframe(df_results, use_container_width=True)
+            
+            # Download CSV
+            csv = df_results.to_csv(index=False)
+            st.download_button(
+                label="📥 Download CSV",
+                data=csv,
+                file_name=f"1d_scan_{lattice_type.replace(' ', '_')}.csv",
+                mime="text/csv"
+            )
 
 # ==============================================================================
 # Footer
