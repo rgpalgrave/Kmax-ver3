@@ -10,8 +10,22 @@ Run with: streamlit run streamlit_app.py
 import streamlit as st
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
+
+# Import plotting libraries with fallbacks
+try:
+    import plotly.graph_objects as go
+    import plotly.express as px
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    st.warning("Plotly not available - install with: pip install plotly")
+
+try:
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+
 from kmax_fft_accumulator import (
     estimate_kmax,
     verify_exact_kmax,
@@ -330,25 +344,31 @@ with tab2:
         with col2:
             st.markdown("#### Visualization")
             
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=radii,
-                y=k_max_values,
-                mode='lines+markers',
-                name='k_max',
-                line=dict(color='#1f77b4', width=3),
-                marker=dict(size=8),
-            ))
-            
-            fig.update_layout(
-                xaxis_title="Radius (Å)",
-                yaxis_title="k_max",
-                hovermode='x unified',
-                height=400,
-                showlegend=False,
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+            if PLOTLY_AVAILABLE:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=radii,
+                    y=k_max_values,
+                    mode='lines+markers',
+                    name='k_max',
+                    line=dict(color='#1f77b4', width=3),
+                    marker=dict(size=8),
+                ))
+                
+                fig.update_layout(
+                    xaxis_title="Radius (Å)",
+                    yaxis_title="k_max",
+                    hovermode='x unified',
+                    height=400,
+                    showlegend=False,
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.error("Plotly required for visualization. Install with: pip install plotly")
+                # Fallback: show as table
+                df_viz = pd.DataFrame({'Radius (Å)': radii, 'k_max': k_max_values})
+                st.dataframe(df_viz, use_container_width=True)
 
 
 # ==============================================================================
@@ -408,22 +428,28 @@ with tab3:
             k_max_map = np.array([k for k, _, _ in results]).reshape(n_a, n_b)
             
             # Create heatmap
-            fig = go.Figure(data=go.Heatmap(
-                x=r_b_vals,
-                y=r_a_vals,
-                z=k_max_map,
-                colorscale='Viridis',
-                colorbar=dict(title="k_max"),
-            ))
-            
-            fig.update_layout(
-                xaxis_title="r_B (Å)",
-                yaxis_title="r_A (Å)",
-                height=600,
-                title="Phase Diagram: k_max across parameter space",
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+            if PLOTLY_AVAILABLE:
+                fig = go.Figure(data=go.Heatmap(
+                    x=r_b_vals,
+                    y=r_a_vals,
+                    z=k_max_map,
+                    colorscale='Viridis',
+                    colorbar=dict(title="k_max"),
+                ))
+                
+                fig.update_layout(
+                    xaxis_title="r_B (Å)",
+                    yaxis_title="r_A (Å)",
+                    height=600,
+                    title="Phase Diagram: k_max across parameter space",
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.error("Plotly required for heatmap visualization. Install with: pip install plotly")
+                # Fallback: show as table
+                df_phase = pd.DataFrame(k_max_map, columns=r_b_vals.round(2), index=r_a_vals.round(2))
+                st.dataframe(df_phase, use_container_width=True)
             
             # Statistics
             col1, col2, col3, col4 = st.columns(4)
